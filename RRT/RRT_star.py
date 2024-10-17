@@ -4,6 +4,8 @@ import random
 from math import sqrt
 np.random.seed(0)
 random.seed(0)
+t = 0.1  # 点与点之间的步长
+Thr = 0.1  # 定义目标点与采样点之间的距离阈值
 
 class Tree:
     def __init__(self):
@@ -21,6 +23,16 @@ class Tree:
                 nearest_node = node
                 index = i
         return index, nearest_node
+    # 找到距离(x, y)小于3t的所有点
+    def get_near_nodes(self, x, y, times=3):
+        near_nodes = []
+        indexs = []
+        for i, node in enumerate(self.list):
+            dist = np.sqrt((node[0] - x) ** 2 + (node[1] - y) ** 2)
+            if dist < times*t:
+                indexs.append(i)
+                near_nodes.append(node)
+        return indexs, near_nodes
 
 class Env:
     def __init__(self):
@@ -33,8 +45,6 @@ class Env:
         self.y0 = 4  # 定义初始点的y坐标
         self.xn = 17  # 定义终点的x坐标
         self.yn = 5  # 定义终点的y坐标
-        self.t = 0.1  # 点与点之间的步长
-        self.Thr = 0.1  # 定义目标点与采样点之间的距离阈值
         self.map[self.x0][self.y0] = 4
         self.map[self.xn][self.yn] = 3
     def obstacle_create(self):
@@ -75,8 +85,9 @@ class Env:
             plt.scatter(tree_list[:, 0], tree_list[:, 1], color='m', s=50, marker='x')
         if path is not None:
             plt.plot(path[:, 0], path[:, 1], color='red', linewidth=2)
-        plt.savefig('RRT.png')
+        plt.savefig('RRT_star_choose_min_parent_and_relink_100.png')
         plt.show()
+        
         
 # 在空间中随机产生一个点rand ->这个点不能是起点
 def product_rand(tree, env):
@@ -90,7 +101,6 @@ def decide_direction(rand_node, nearest_node, env):
     z_value = np.sqrt((nearest_node[0] - rand_node[0]) ** 2 + (nearest_node[1] - rand_node[1]) ** 2)  # 斜边长度
     cos_value = (rand_node[0] - nearest_node[0]) / z_value
     sin_value = (rand_node[1] - nearest_node[1]) / z_value
-    t = env.t
     x1 = nearest_node[0] + t * cos_value
     y1 = nearest_node[1] + t * sin_value
     if collision_check(nearest_node[0], nearest_node[1], x1, y1, env.obstacle_list):
@@ -139,12 +149,19 @@ def backtrace(tree:Tree, path:list):
     index_pre = tree.list[-1][5]
     while(True):
         path.append(tree.list[index_pre][0:2])
-        print(tree.list[index_pre][0:2])
+        # print(tree.list[index_pre][0:2])
         if tree.list[index_pre][5] == -1:
             break
         else:
             index_pre = tree.list[index_pre][5]
 
+def relink(tree, new_node, env):
+    near_indexs, near_nodes = tree.get_near_nodes(new_node[0], new_node[1], times = 100)
+    for i in range(len(near_indexs)):
+        dist = sqrt((new_node[0] - near_nodes[i][0]) ** 2 + (new_node[1] - near_nodes[i][1]) ** 2)
+        if new_node[4] + dist < near_nodes[i][4] and collision_check(near_nodes[i][0], near_nodes[i][1], new_node[0], new_node[1], env.obstacle_list):
+            near_nodes[i][4] = new_node[4] + dist
+            near_nodes[i][5] = len(tree.list) - 1
 
 if __name__ == '__main__':
     # print(error_list)
@@ -155,14 +172,30 @@ if __name__ == '__main__':
     path = []
 
     while(True):
+        # 产生一个随机点
         rand_node = product_rand(tree, env)
+        # 找到距离rand_node最近的点
         nearest_node_index, nearest_node = tree.get_nearest_node(rand_node[0], rand_node[1])
+        # 产生一个新的点，这个点是从nearest_node沿着rand_node方向走一步的点
         x, y, find_new_node= decide_direction(rand_node, nearest_node, env)
-        dist = sqrt((x - nearest_node[0]) ** 2 + (y - nearest_node[1]) ** 2)
+
+        ##### RRT* choose min parent #####
         if find_new_node:
-            tree.add_node(x, y, nearest_node[0], nearest_node[1], dist, nearest_node_index)
+            nearest_dist = 999999
+            near_indexs, near_nodes = tree.get_near_nodes(x, y)
+            for i in range(len(near_indexs)):
+                dist = sqrt((x - near_nodes[i][0]) ** 2 + (y - near_nodes[i][1]) ** 2)
+                if near_nodes[i][4] + dist < nearest_dist and collision_check(near_nodes[i][0], near_nodes[i][1], x, y, env.obstacle_list):
+                    nearest_dist = near_nodes[i][4] + dist
+                    nearest_node_index = near_indexs[i]
+                    nearest_node = near_nodes[i]
+            new_node = [x, y, nearest_node[0], nearest_node[1], nearest_dist, nearest_node_index]
+            tree.add_node(new_node[0], new_node[1], new_node[2], new_node[3], new_node[4], new_node[5])
+        ##### RRT* relink #####
+            relink(tree, new_node, env)
+
         dist_to_target = sqrt((x - env.xn) ** 2 + (y - env.yn) ** 2)
-        if dist_to_target < env.Thr:
+        if dist_to_target < Thr:
             backtrace(tree, path)
             path = np.array(path)
             print(path)
