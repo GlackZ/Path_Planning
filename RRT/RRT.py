@@ -4,14 +4,6 @@ import random
 from math import sqrt
 np.random.seed(0)
 random.seed(0)
-class Node:
-    def __init__(self):
-        self.x = 0
-        self.y = 0
-        self.xPre = 0
-        self.yPre = 0
-        self.dist = 0
-        self.indPre = 0
 
 class Tree:
     def __init__(self):
@@ -46,7 +38,7 @@ class Env:
         self.map[self.x0][self.y0] = 4
         self.map[self.xn][self.yn] = 3
     def obstacle_create(self):
-        obstacle_ratio = 0.1
+        obstacle_ratio = 0.2
         obstacle_list = []
         for i in range(self.x_width):
             for j in range(self.y_width):
@@ -90,7 +82,7 @@ class Env:
 def product_rand(tree, env):
     tree_set = set(map(tuple, np.array(tree.list)[:, 0:2]))
     while True:
-        rand_node = [random.randint(0, env.x_width - 1)/5, random.randint(0, env.y_width - 1)/5]
+        rand_node = [random.randint(0, env.x_width - 1) , random.randint(0, env.y_width - 1)]
         if tuple(rand_node) not in tree_set:
             return rand_node
         
@@ -107,19 +99,39 @@ def decide_direction(rand_node, nearest_node, env):
         return nearest_node[0], nearest_node[1], False
 
 def collision_check(x0, y0, x1, y1, obstacle_list):
-    for point in obstacle_list:
-        x2 = point[0]
-        y2 = point[1]
-        d_line = abs((y1-y0)*x2-(x1-x0)*y2+x1*y0-y1*x0)/sqrt((y1-y0)**2+(x1-x0)**2)
-        t = ((x2-x0)*(x1-x0)+(y2-y0)*(y1-y0))/((x1-x0)**2+(y1-y0)**2)
-        if t >= 0 and t <= 1:
+    # 预计算线段的长度平方
+    dx = x1 - x0
+    dy = y1 - y0
+    line_len_sq = dx ** 2 + dy ** 2
+    
+    # 如果线段非常短，直接判断起点和终点是否与障碍物重合
+    if line_len_sq == 0:
+        return all(np.hypot(x0 - x2, y0 - y2) >= 1 for x2, y2 in obstacle_list)
+    
+    for x2, y2 in obstacle_list:
+        if not (x2 >= min(x0,x1)-1 and x2 <= max(x0,x1)+1 and y2 >= min(y0,y1)-1 and y2 <= max(y0,y1)+1):
+            continue
+        # 计算点到线的垂直距离
+        d_line = abs(dy * x2 - dx * y2 + x1 * y0 - y1 * x0) / np.sqrt(line_len_sq)
+        if d_line >= 0.7:
+            continue
+        # 计算垂足的参数 t
+        t = ((x2 - x0) * dx + (y2 - y0) * dy) / line_len_sq
+        
+        if 0 <= t <= 1:
+            # 如果垂足在线段上，使用垂直距离
             d = d_line
         elif t < 0:
-            d = sqrt((x0-x2)**2+(y0-y2)**2)
+            # 垂足在线段左侧，计算到起点的距离
+            d = np.hypot(x0 - x2, y0 - y2)
         else:
-            d = sqrt((x1-x2)**2+(y1-y2)**2)
-        if d < 1:
+            # 垂足在线段右侧，计算到终点的距离
+            d = np.hypot(x1 - x2, y1 - y2)
+        
+        # 检查碰撞
+        if d < 0.7:
             return False
+    
     return True
 
 def backtrace(tree:Tree, path:list):
